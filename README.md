@@ -1,2 +1,2 @@
 # datasciencecoursera
-Repo created for the Data Scientist Toolbox course part of the Data Science specialization on Coursera
+Repo created to hold all files related to the Coursera Data Science specialization course assignments
