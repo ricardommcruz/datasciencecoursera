@@ -1,0 +1,93 @@
+---
+title: "Illustrating the Central Limit Theorem using simulation and the Exponential distribution"
+author: "Ricardo Cruz"
+date: "12 November 2015"
+output: pdf_document
+---
+
+# The Central Limit Theorem (CLT)
+
+The **Central Limit Theorem** states that **the distribution of the normalized means of a sufficiently large number of iid random variables approximates that of a standard normal**. Further, it states that this result is independent of the original population distribution from which those variables are sampled.
+
+In this document we will illustrate the CLT using simulation and the Exponential distribution (as our population distribution) from which we will sample 40 iid variables 1000 times.
+
+# The Exponential distribution
+The Exponential distribution is characterized by the single parameter "$\lambda$", also know as rate and its expected value (or mean) is given by $E[x]=1/\lambda$. Its variance is given by $Var[x]=1/\lambda^2$ (the standard deviation is therefore equal to the mean).
+
+For the simulations used in this document we will be using the exponential distribution defined by a $\lambda$ value of **0.2**. The expected value of such distribution is given by $E[x]=1/0.2=5$ and its varience is obtained with $Var[x]=1/0.2^2=25$. The standard deviation is simply the square root of the variance and as seen above equals the mean, in this case, 5. Keep these results in mind as we go through the next sections.
+
+# Simulation
+
+We will start by simulating 1000 samples of 40 observations each:
+
+```{r results='hide'}
+nsim   <- 1000 # Number of simulations
+nobs   <- 40   # Number of observations in each sample
+lambda <- 0.2  # Rate parameter for the distribution
+
+set.seed(1984) # Let's set a seed for full reproducibility
+
+# Simulate (obtain nobs*nsim observations and arrange them in a matrix)
+simdata <- matrix(rexp(n = nobs*nsim, rate = lambda), nsim)
+```
+
+The results of our simulation have been stored in a matrix (*simdata*) with 1000 lines and 40 columns. Each line represents one sample (n=40).
+
+## Exploring the sample mean
+
+The **sample mean is known to be consistent for the population mean**. This is a consequence of the **Law of Large numbers (LLN)** and it means that the mean of large iid samples converges to the population mean.
+
+We hapen to know our population mean ($\mu=5$) so we can verify this statement by comparing the mean of the sample means:
+
+```{r}
+mean(apply(simdata, 1, mean))
+```
+
+Pretty close right? Now, if we were to normalise the sample means using the known population mean and standard deviation we would expect the result above to be close to 0. Normalisation is achieved using the following formula:
+
+$$\frac{\sqrt{n}*(\bar{X}-\mu)}{\sigma}$$
+
+With $n=40$ (number of observations in each sample), $\mu=5$ (population mean), $\sigma=5$ (population standard deviation) and $\bar{X}$ equal to the sample mean.
+
+```{r}
+normalise <- function(x,n) sqrt(n) * (mean(x)-5) / 5
+normalised_means <- apply(simdata, 1, normalise, nobs)
+mean(normalised_means)
+```
+
+Not bad!
+
+## Exploring the sample variance
+The CLT also predicts the variance of the distribution of sample means which can be obtained by $\sigma^2/n$. We happen to know the population variance so we can verify the consistency of our simulated data with this CLT prediction. Applying the formula we obtain $\sigma^2/n=25/40=0.625$ and our simulated data tell us:
+
+```{r}
+var(apply(simdata, 1, mean))
+```
+
+Great! Now, the variance of the normalised means is of course expected to be close to 1:
+
+```{r}
+var(normalised_means)
+```
+
+\break
+
+## Distribution of the sample means
+However, because 1 picture is worth a 1000 words lets see the visual representation of the results obtained above. We start with the Exponential distribution itself
+
+```{r echo=FALSE}
+hist(simdata, xlab = '', main = "Distribution of our simulated data", prob=TRUE)
+curve(dexp(x, rate=.2), add=TRUE, col="blue", lwd=2)
+abline(v = mean(simdata), col='red', lwd=1)
+```
+
+The 40000 observations (nobs*nsim) approximate nicely the Exponential distribution with rate $\lambda=0.2$ (in blue). The vertical red line represents the expected value of the population ($E[x]=1/\lambda=1/0.2=5$)
+
+Lets now see the distribution of the normalised sample means which the CLT says should approximate that of standard normal distribution (in red).
+
+```{r echo=FALSE}
+hist(normalised_means, prob=TRUE, main="Distribution of sample means", xlab="", xlim = c(-3,3), breaks=30)
+curve(dnorm(x), add=TRUE, col="red", lwd=2)
+```
+
+And it does even though there is some noise in the sample.

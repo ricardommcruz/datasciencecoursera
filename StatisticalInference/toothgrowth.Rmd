@@ -1,0 +1,135 @@
+---
+title: "Vitamin C and Tooth Growth in Guinea Pigs"
+author: "Ricardo Cruz"
+date: "12 November 2015"
+output: pdf_document
+---
+
+```{r echo=FALSE, results=FALSE, message=FALSE}
+library(dplyr)
+data <- ToothGrowth
+```
+
+# Exploratory analysis of the dataset
+
+The dataset consists of 60 observations corresponding to the measurement of tooth length in **60 guinea pigs split into 6 groups (n=10)**. Each group was given one of three daily doses of Vitamin C (0.5mg, 1mg or 2mg) either indirectly via orange juice (OJ) or directly in the form of ascorbic acid (VC).
+
+This document will focus in the tooth length differences observed across the 6 groups. The means and standard deviations as well as a boxplot for each group will give us an initial feel for the data.
+
+```{r}
+data %>% group_by(supp,dose) %>% summarise(n=n(), lenmean=round(mean(len),3),
+                                                  lenstd=round(sd(len),2))
+```
+
+```{r echo=FALSE}
+par(mfcol=c(1,2), mar=c(2,3,2,0), oma=c(1,1,6,0), cex=.8, family='serif')
+boxplot(len ~ dose, data = filter(data, supp=="OJ"),
+        main="Orange Juice (OJ)",
+        ylim=c(5,35))
+boxplot(len ~ dose, data = filter(data, supp=="VC"),
+        main="Ascorbic Acid (VC)",
+        ylim=c(5,35))
+mtext("Tooth Growth by dose for each delivery mechanism",
+      side=3, outer=TRUE, line=1, font=2)
+mtext("Daily Dose (mg)",
+      side=1, outer=TRUE, line=0, font=2, cex=0.9)
+mtext("Tooth Length",
+      side=2, outer=TRUE, line=0, font=2, cex=0.9)
+```
+
+**Regardless of whether Vitamin C is delivered indirectly (OJ) or directly (VC) there seems to be a positive correlation between the quantity of Vitamin C and the length of teeth in Guinea Pigs. This relationship appears more linear in the case of Ascorbic Acid (VC).** There is a hint of skewness, in particular for the two groups that received a daily dose of 0.5mg but given the size of the sample this may not be the case for the population. The group receiving 0.5mg via Orange Juice and the group receiving 2mg in the form of Ascorbic Acid also have a noticiable higher variance.
+
+# Confidence intervals for the sample means
+As a first step in investigating the statistical significance of the differences observed across groups we will start by creating a t-confidence interval for the mean of each group. **We select the t distribution due to the relatively small sample sizes (n=10) and we are in the process assuming that the underlying data approximates a normal distribution.**
+
+```{r chunk1, ref.label="t.interval", echo=FALSE}
+```
+```{r}
+summarise(group_by(data, supp, dose),
+          lenmean=mean(len),
+          lower=round(t.interval(lenmean, sd(len), 10, lower=TRUE),2),
+          upper=round(t.interval(lenmean, sd(len), 10),2))
+```
+
+On the three groups that were provided Vitamin C via Orange Juice (OJ) we can state with a 95% confidence that the average tooth length is higher in the group receiving 1mg compared to the group that received 0.5mg. However, when we compare the group that received 1mg with the one that received 2mg we cannot ascertain for sure (at least with 95% confidence) that this is also the case (the two confidence intervals have a small overlap).
+
+On the three groups that were provided Vitamin C directly (VC) we can state with a 95% confidence that the average tooth length is higher in the group receiving 1mg compared to the group that received 0.5mg. The average length is also higher in the group who received 2mg compared to the group that recevied 1mg.
+
+# Hypothesis testing (two-sample t-tests)
+An interesting question to explore would be to try and find out which delivery method is associated with longer tooth length? **Are there any significant differences among groups that were provided Vitamin C directly (OJ) or indirectly (VC)?**
+
+In the following three sections we perform a two sample t-test comparing the means of the groups that received the same daily dose of Vitamin C through Orange Juice ($\mu_{oj}$) or directly ($\mu_{vc}$).
+
+**The null hypothesis $H_0$ states that the difference in the means of both groups is 0 ($\mu_{oj}=\mu_{vc}$), the alternative states that the means of both groups are not equal ($\mu_{oj}\neq\mu_{vc}$).**
+
+Across the three tests the $x$ sample corresponds to the group who received Vitamin C via Orange Juice (OJ) and the $y$ sample corresponds to the group who received Ascorbic Acid (VC) directly. *Once again we are assuming that the underlying data follows a normal distribution.*
+
+## Daily dose of 0.5mg
+```{r}
+res <- t.test(filter(data, supp=='OJ', dose==.5)$len,
+              filter(data, supp=='VC', dose==.5)$len)
+```
+```{r echo=FALSE}
+c('df'        = round(res$parameter,   3),
+  't-stat'    = round(res$statistic,   3),
+  'p-value'   = round(res$p.value,     3),
+  'lower 95%' = round(res$conf.int[1], 3),
+  'upper 95%' = round(res$conf.int[2], 3))
+```
+
+There is **strong statistical evidence in favour of the alternative hypothesis** (that the sample means are different). Assuming that the null hypothesis is true the probability of observing a difference of 14.969 between the sample means is equal to or less than 0.6%. **We can thus reject the null hypthesis** with a high degree of confidence and state that for a daily dosage of 0.5mg Orange Juice seems to be a *"better"* delivery mechanism leading to higher tooth length on average. 
+
+## Daily dose of 1mg
+```{r}
+res <- t.test(filter(data, supp=='OJ', dose==1)$len,
+              filter(data, supp=='VC', dose==1)$len)
+```
+```{r echo=FALSE}
+c('df'        = round(res$parameter,   3),
+  't-stat'    = round(res$statistic,   3),
+  'p-value'   = round(res$p.value,     3),
+  'lower 95%' = round(res$conf.int[1], 3),
+  'upper 95%' = round(res$conf.int[2], 3))
+```
+
+For a daily dose of 1mg there is **even stronger statistical evidence in favour of the alternative hypothesis** (that the sample means are different). Under the null hypothesis the probability of observing such as wide difference in the sample means (15.358) would be equal to or less than 0.1%. We can **reject the null hypothesis** and with a high degree of confidence state that for a daily dosage of 1mg Orange Juice seems to be a *"better"* delivery mechanism leading to higher tooth length on average.
+
+## Daily those of 2mg
+```{r}
+res <- t.test(filter(data, supp=='OJ', dose==2)$len,
+              filter(data, supp=='VC', dose==2)$len)
+```
+```{r echo=FALSE}
+c('df'        = round(res$parameter,   3),
+  't-stat'    = round(res$statistic,   3),
+  'p-value'   = round(res$p.value,     3),
+  'lower 95%' = round(res$conf.int[1], 3),
+  'upper 95%' = round(res$conf.int[2], 3))
+```
+
+For a daily dose of 2mg however **we can not reject the null hypothesis**. The two samples do not seem to differ that much in terms of the measured length.
+
+\break
+
+# Supporting Appendix
+
+## Calculation of t confidence intervals
+```{r t.interval}
+# Function  : t.interval
+#
+# Description: Calculates a t confidence interval with an arbitrary significance level
+#              for a sample of size n
+#
+# Parameters: mean  - The sample mean for which to calculate the confidence interval
+#             sd    - The sample standard deviation
+#             n     - The sample size
+#             conf  - Significance level (default=.975 - 95%)
+#             lower - Weheter to return the lower bound of the interval (default FALSE)
+#
+t.interval <- function(mean, sd, n, conf=.975, lower=FALSE) {
+    if (lower)
+        mean + -1 * qt(conf, n-1) * (sd/sqrt(n))
+    else
+        mean + qt(conf, n-1) * (sd/sqrt(n))
+}
+```
