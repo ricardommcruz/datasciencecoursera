@@ -1,0 +1,298 @@
+---
+title: "The human and economic impact of adverse weather events across the United States"
+author: "Ricardo Cruz"
+date: "19 November 2015"
+output: html_document
+---
+
+***
+
+####*Synopsis*
+
+*This document presents a high level analysis of the NOAA Storm database, identifying those types of events that have the greatest human impact as measured by the number of fatalities and injuries, as well as the greatest economic impact as measured by estimates of property and crop damage.*
+
+*In general, the NOAA data-set shows how a small number of events are responsible for a disproportionate portion of the total impact, whether human or economic. The data also shows that these events are relatively rare however it is common to see them cluster around specific years.*
+
+*Tornadoes rank high both in terms of fatalities and injuries and they seem to be the most dangerous for the populations. However, excessive heat, floods and the rarer hurricanes are also events with the potential to cause a large number of fatalities and injuries among the population.*
+
+*Floods and Drought, the two extremes of precipitation levels are responsible for the highest accumulated economic impact, on properties and crops respectively, since January 1996. However, Hurricanes (once again) rank very high and claim 6 places in the list of the 10 events with the highest impact in terms of property damage (since January 1996).*
+
+*The rarity and unpredictability of extreme weather events with devastating potential suggest that public authorities and the population in general should maintain a certain level of readiness at all times. This brief analysis of the NOAA storm database suggests that this data-set can be mined to help determine the level and type of investments required in each region.*
+
+***
+
+# Primary questions
+The brief analysis that follows will focus on the following two questions:
+
+**1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?**
+
+**2. Across the United States, which types of events have the greatest economic consequences?**
+
+# Load data
+
+### Libraries
+Given the size of the initial data-set and the type of analysis we will run on this data we will use the data-table R package for quick manipulation and quick aggregation of data.
+```{r message=FALSE}
+library('data.table')
+library('ggplot2')
+library('grid')
+```
+
+### Read data into a data.table
+The fread function provided in the *data.table* package is much quicker than the alternatives to read our data-set which uncompressed is over 500MBs. However this command cannot uncompress files automatically so we need to use an external tool for that step.
+
+**NOTE:** *We have used the bzcat tool which is normally available in Linux based systems. For Windows environments you can install the cygwin UNIX environment.*
+
+Given the size of the data set we also choose to selectively read 9 out of the 37 columns. These 9 columns are those containing the variables of interest (some auxiliary) to answer our two primary questions.
+
+```{r cache=TRUE, warning=FALSE}
+data <- fread(input  = 'bzcat repdata-data-StormData.csv.bz2',
+              select = c('BGN_DATE','STATE','EVTYPE',
+                         'FATALITIES','INJURIES',
+                         'PROPDMG','PROPDMGEXP','CROPDMG','CROPDMGEXP'))
+```
+
+# Data Processing
+
+```{r echo=FALSE, results=FALSE}
+convkey <- data.table(symb = c('h','H','m','M','k','K','B','0','1','2',
+                               '3','4','5','6','7','8','+','-','?',''),
+                      mult = c(100,100,1000000,1000000,1000,1000,
+                               1000000000,10,10,10,10,10,10,10,10,
+                               10,1,0,0,0))
+setkey(convkey,symb)
+
+eventkey <- data.table(EVENT_TYPE=c('ASTRONOMICAL LOW TIDE', 'AVALANCHE', 'BLIZZARD',
+                        'COASTAL FLOOD', 'COLD/WIND CHILL', 'DEBRIS FLOW',
+                        'DENSE FOG','DENSE SMOKE','DROUGHT','DUST DEVIL',
+                        'DUST STORM','EXCESSIVE HEAT','EXTREME COLD/WIND CHILL',
+                        'FLASH FLOOD','FLOOD','FROST/FREEZE','FUNNEL CLOUD',
+                        'FREEZING FOG','HAIL','HEAT','HEAVY RAIN','HEAVY SNOW',
+                        'HIGH SURF','HIGH WIND','HURRICANE (TYPHOON)',
+                        'ICE STORM','LAKE-EFFECT SNOW','LAKESHORE FLOOD',
+                        'LIGHTNING','MARINE HAIL','MARINE HIGH WIND',
+                        'MARINE STRONG WIND','MARINE THUNDERSTORM WIND',
+                        'RIP CURRENT','SEICHE','SLEET','STORM SURGE/TIDE',
+                        'STRONG WIND','THUNDERSTORM WIND','TORNADO',
+                        'TROPICAL DEPRESSION','TROPICAL STORM','TSUNAMI',
+                        'VOLCANIC ASH','WATERSPOUT','WILDFIRE','WINTER STORM',
+                        'WINTER WEATHER'))
+setkey(eventkey,EVENT_TYPE)
+```
+
+The NOAA storm data-set spans a large number of years from January 1950 to August 2015. The guidelines for recording events as well as the scope of the database in terms what types of events are recorded has changed throughout this period. Earlier years contain data about only for Tornadoes, Thunderstorm wind and Hail and data is generally less complete.
+
+In 1996 new guidelines were issued by Directive 10-1605 and among other changes the type of events to be recorded were standardized into 48 types.
+
+For this reason, in the present analysis, we choose to focus only on data collected on and after January 1996.
+
+```{r}
+# Convert the begining time to a date format
+data[,BGN_DATE:=as.Date(BGN_DATE, format='%m/%d/%Y %H:%M:%S')]
+# Discard all data prior to January 1996
+data <- data[BGN_DATE>=as.Date("1996-01-01")]
+```
+
+In spite of the standardization in terms of event types the database is rather noisy and contains a large number of inconsistencies. For this reason and to facilitate subsequent analysis we perform a number of manipulations over the EVTYPE (event type) variable with the purpose of bringing it inline with the 47 official event types described in Directive 10-1605.
+
+```{r}
+# The first operation is to convert all EVTYPE values to upper case. This ensures for examplethat "FLOOD" is interperted as the same type of event as "Flood"
+data[,EVTYPE:=toupper(EVTYPE)]
+
+# Remove the few Summary entries (we will do our own aggregation later)
+data <- data[!grepl('SUMMARY',EVTYPE),]
+```
+
+After these two manipulations we still have a large number of records that do not conform with the 47 categories defined in the directive. Dropping these records would be an approach but that would remove a considerable amount of data points and potentially change our conclusions.
+
+For this reason we attempted to manually map invalid EVTYPES with more than 100 records. From these, only those that could be directly and unambiguously mapped were changed.
+
+```{r}
+data[grepl('^TSTM WIND.*',EVTYPE),EVTYPE:='THUNDERSTORM WIND']
+data[grepl('^MARINE TSTM WIND.*',EVTYPE),EVTYPE:='THUNDERSTORM WIND']
+data[grepl('RIP_CURRENTS',EVTYPE),EVTYPE:='RIP CURRENT']
+data[grepl('WILD/FOREST FIRE',EVTYPE),EVTYPE:='WILDFIRE']
+data[grepl('URBAN/SML STREAM FLD',EVTYPE),EVTYPE:='FLOOD']
+data[grepl('RIVER FLOOD',EVTYPE),EVTYPE:='FLOOD']
+data[grepl('COASTAL FLOODING',EVTYPE),EVTYPE:='COASTAL FLOOD']
+data[grepl('WINTER WEATHER/MIX',EVTYPE),EVTYPE:='WINTER WEATHER']
+data[grepl('WINTER WEATHER MIX',EVTYPE),EVTYPE:='WINTER WEATHER']
+data[grepl('WINTERY MIX',EVTYPE),EVTYPE:='WINTER WEATHER']
+data[grepl('WINTRY MIX',EVTYPE),EVTYPE:='WINTER WEATHER']
+data[grepl('HURRICANE',EVTYPE),EVTYPE:='HURRICANE (TYPHOON)']
+data[grepl('HURRICANE/TYPHOON',EVTYPE),EVTYPE:='HURRICANE (TYPHOON)']
+data[grepl('EXTREME COLD',EVTYPE),EVTYPE:='COLD/WIND CHILL']
+data[grepl('EXTREME WINDCHILL',EVTYPE),EVTYPE:='COLD/WIND CHILL']
+data[grepl('STORM SURGE',EVTYPE),EVTYPE:='STORM SURGE/TIDE']
+data[grepl('HEAVY SURF/HIGH SURF',EVTYPE),EVTYPE:='HIGH SURF']
+data[grepl('STRONG WINDS',EVTYPE),EVTYPE:='STRONG WIND']
+data[grepl('RECORD WARMTH',EVTYPE),EVTYPE:='HEAT']
+data[grepl('UNSEASONABLY WARM',EVTYPE),EVTYPE:='HEAT']
+```
+
+After this additional manual mapping all records that still had an invalid event type were dropped. This resulted in the drop of 0.7% (4560) of the total number of records (recall we are only considering data collected from January 1996)
+```{r}
+# Remove all eventtypes not in the key
+data <- data[EVTYPE %in% eventkey$EVENT_TYPE,]
+
+# Now convert that column to factor
+data[,EVTYPE:=as.factor(EVTYPE)]
+```
+
+The figures relative to property and crop damage are registered with different base "units". To facilitate aggregation and later analysis we converted all values to dollar.
+```{r}
+# Convert monetary quantities to dollar
+data[,PROPDMG:=PROPDMG*convkey[PROPDMGEXP]$mult]
+data[,CROPDMG:=CROPDMG*convkey[CROPDMGEXP]$mult]
+
+# Drop the unnecessary base unit indicator (we no longer need it)
+data[,PROPDMGEXP:=NULL]
+data[,CROPDMGEXP:=NULL]
+```
+
+As a last step before analysis we aggregate all data based on its beginning date, state of occurrence and event type. The origins data-set has geographical granularity to the county level, however since we are interested in analyzing overall impact it is more appropriate to aggregate data to the state level.
+
+```{r}
+data <- data[,.(FATALITIES=sum(FATALITIES),
+                INJURIES  =sum(INJURIES),
+                PROPDMG   =sum(PROPDMG),
+                CROPDMG   =sum(CROPDMG)),
+             by=list(BGN_DATE,STATE,EVTYPE)]
+```
+
+# Results
+
+## Human impact
+We measure human impact based on the number of fatalities and injuries recorded against events since January 1996.
+
+We use the sum of total fatalities and injuries across events of the same type. Common descriptive statistics such as the mean and median are unhelpful to convey the general picture here due to the nature of the underlying data which shows high variance.
+```{r}
+health <- data[,.(NEVENTS          =.N,
+                  TOTAL_FATALITIES=sum(FATALITIES),
+                  TOTAL_INJURIES  =sum(INJURIES),
+                  MEAN_FATALITIES =round(mean(FATALITIES),3),
+                  MEAN_INJURIES   =round(mean(INJURIES),3)),
+               by=EVTYPE]
+
+# Filter those event types without fatalities and injuries reported as we are only interested in those events that have the highest impact
+health <- health[TOTAL_FATALITIES>0 & TOTAL_INJURIES>0,]
+```
+
+### Fatalities
+We first look at those event types with the highest number of fatalities:
+```{r}
+head(setorder(health[,.(EVTYPE,NEVENTS,TOTAL_FATALITIES,MEAN_FATALITIES)], -TOTAL_FATALITIES), 10)
+```
+
+With some margin, EXCESSIVE HEAT and TORNADOS are the two most *deadly* types of events but not the most frequent (fortunately). It is also worth noting how low the averages are... dividing TOTAL_FATALITIES by the number of events gives us, mostly, values lower than 1. This indicates that most fatalities are caused by a relatively small number of events, those that are most extreme in nature.
+
+### Injuries
+Lets now look at those event types with the highest number of injuries.
+```{r}
+head(setorder(health[,.(EVTYPE,NEVENTS,TOTAL_INJURIES,MEAN_INJURIES)], -TOTAL_INJURIES), 10)
+```
+
+When it comes to injuries TORNADOS are clearly those events with the highest total impact followed by a group of other 4 types of events before dropping below 1500 accumulated injuries since January 1996. Again, we observe the same low averages consistent with the findings regarding fatalities and caused by the same phenomena, a small number of events is responsible by a disproportionate number of injuries.
+
+The two results above suggest a certain linear relationship between the number of fatalities and injuries, which is expected.
+
+### Comparison across event types
+The next graph helps us understand this linear relationship a bit better and also understand the general differences across event types.
+```{r}
+health[TOTAL_FATALITIES>1000, IMPACT:='EXTREME']
+health[TOTAL_FATALITIES<=1000 & TOTAL_INJURIES<=10000, IMPACT:='HIGH']
+health[TOTAL_FATALITIES<=500 & TOTAL_INJURIES<=2000, IMPACT:='MODERATE']
+
+ggplot(health, aes(TOTAL_FATALITIES, TOTAL_INJURIES)) +
+    geom_point(size=3, shape=19, aes(colour = IMPACT)) +
+    geom_smooth(method='lm',se=FALSE,color='black') +
+    theme_bw()
+```
+
+The classification in terms of "IMPACT" was defined to make it easier to see how there event types "cluster" in terms of human impact. This crude classification was done manually although a formal cluster analysis would yield similar results. The following table summaries our classification.
+
+IMPACT       |  FATALITIES    |  INJURIES        |  EVENT TYPES
+------------ | -------------- | ---------------- | -----------------------------
+**EXTREME**  |  >1000         |                  |  EXCESSIVE HEAT and TORNADOS
+**HIGH**     |  >500 & <1000  |  >2000 & <10000  |  FLASH FLOOD, FLOOD LIGHTNING and THUNDERSTORM WIND
+**MODERATE** |  < 500         |  <2000           |  ALL OTHERS
+
+### The top 10 events with the highest human impact
+
+####Fatalities
+```{r}
+head(setorder(data[,.(BGN_DATE,STATE,EVTYPE,FATALITIES)], -FATALITIES), 10)
+```
+
+The rank of the 10 events with the highest impact in terms of the number of fatalities (since January 1996) confirms the high variance in the data and the relative rarity of such events. The years of 1999 (4 events) and 2011 (3 events) were particularly affected.
+
+####Injuries
+```{r}
+head(setorder(data[,.(BGN_DATE,STATE,EVTYPE,INJURIES)], -INJURIES), 10)
+```
+
+The rank of the 10 events with the highest impact in terms of the number of injuries (since January 1996) also shows high variance and confirms the idea that a relatively small number of events have a disproportionate impact.
+
+## Economic impact
+
+We measure economic impact based on estimates of property and crop damage recorded against events since January 1996. All figures presented in the following tables and graph are in million dollars.
+
+As per the assessment of human impact (see above) we use the sum (total accumulated dollar impact) and mean of the dollar impact for each event type in order to understand which types of events cause the highest devastation.
+
+```{r}
+econ <- data[,.(NEVENTS  =.N,
+                PROPERTY  =round(sum(PROPDMG)/1000000,1),
+                CROPS     =round(sum(CROPDMG)/1000000,1),
+                MEAN_PROP =round(mean(CROPDMG)/1000000,1),
+                MEAN_CROP =round(mean(CROPDMG)/1000000,1)),
+             by=EVTYPE]
+
+econ <- econ[PROPERTY>0 & CROPS>0,]
+```
+
+### Property damage
+We start by looking at the total accumulated property damage for each event type since January 1996.
+```{r}
+head(setorder(econ[,.(EVTYPE,NEVENTS,PROPERTY,MEAN_PROP)], -PROPERTY), 10)
+```
+
+The event types in this table is much more varied than that seen in the human impact analysis, however the high variance and small means are also present. Again, this leads us to conclude that a small amount of events is responsible for a large portion of the total damage. For example, Floods, the top event type in terms of total property damage, are responsible for almost twice the impact than that of Hurricanes (the second event type in terms of total property damage).
+
+### Crop damage
+Lets now look at the total accumulated crop damage for each event type since January 1996.
+```{r}
+head(setorder(econ[,.(EVTYPE,NEVENTS,CROPS,MEAN_CROP)], -CROPS), 10)
+```
+
+Once again, high variability and low means. This is consistent with all the evidence presented so far that most damage is caused by a relatively small number of events. Drought replaces Flood as the top event type with the highest impact on crops but Hurricanes remain in second place although its total accumulated crop damage is less than half than that of Droughts. Floods also rank high in terms of accumulated impact on crops.
+
+### Comparison across event types
+Just like we did with the number of fatalities and injuries we plot the accumulated impact in terms of property and crop damage since January 1996 in order to understand a bit better the relative differences across event types.
+
+```{r fig.width=9, fig.height=7}
+ggplot(econ, aes(PROPERTY, CROPS)) +
+    geom_point(size=3, shape=19, aes(colour=EVTYPE)) +
+    geom_smooth(method='lm',se=FALSE,color='black') +
+    theme_bw()+
+    theme(legend.position = "bottom", legend.box = "horizontal")+
+    theme(legend.key.size = unit(0.05, "cm")) +
+    guides(colour=guide_legend(nrow=5, byrow = TRUE))
+```
+
+As was the case with the plots that analysed the human impact of each event type we see that certain types of events have a much large accumulated impact than the rest. Along the Property Damage axis we see Floods, Hurricanes and Storm Surge/Tide and along the Crop Damage axis we see Drought as a very isolated outlier.
+
+### The top 10 events with the highest economic impact
+
+####Property Damage
+```{r}
+head(setorder(data[,.(BGN_DATE,STATE,EVTYPE,PROPDMG)], -PROPDMG), 10)
+```
+
+The rank of the 10 events with the highest impact in terms of property damage (since January 1996) shows the devastating impact of Hurricanes and how 2004 and 2005 seemed to have been particularly bad years. In fact it is interesting to see that all events but one occurred between 2004 and 2006.
+
+####Crop Damage
+```{r}
+head(setorder(data[,.(BGN_DATE,STATE,EVTYPE,CROPDMG)], -CROPDMG), 10)
+```
+
+The rank of the 10 events with the highest impact in terms of crop damage (since January 1996) also features 2 Hurricanes but Droughts (5 events out of 10) dominate the list.
